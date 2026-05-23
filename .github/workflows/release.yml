@@ -31,13 +31,13 @@ jobs:
           version: 0.16.0
 
       - name: Check formatting
-        run: zig fmt --check src/*.zig
+        run: zig fmt --check build.zig src/*.zig
 
       - name: Run tests
         run: zig build test
 
-      - name: Build optimized binary
-        run: zig build -Doptimize=ReleaseSafe
+      - name: Build release binary
+        run: zig build --release
 
       - name: Smoke-test CLI
         run: ./zig-out/bin/dm help
