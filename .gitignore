@@ -1,0 +1,19 @@
+# Zig
+.zig-cache/
+zig-out/
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+
+# Docs plans
+docs/plans/*
+
+# Never ignore any AGENTS.md file
+!AGENTS.md
+!**/AGENTS.md
