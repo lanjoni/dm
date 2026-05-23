@@ -34,7 +34,20 @@ Before replacing anything, `dm` backs up the existing destination under:
 
 ## Install / build
 
-For now, build from source:
+Install with Homebrew:
+
+```sh
+brew install lanjoni/tap/dm
+```
+
+Or add the tap first:
+
+```sh
+brew tap lanjoni/tap
+brew install dm
+```
+
+To build from source:
 
 ```sh
 zig build
