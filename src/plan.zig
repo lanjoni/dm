@@ -102,10 +102,87 @@ fn discoverEntries(
 
 fn isExcluded(excludes: []const []const u8, rel_path: []const u8) bool {
     for (excludes) |exclude| {
+        if (hasStar(exclude)) {
+            if (globExcludesPath(exclude, rel_path)) return true;
+            continue;
+        }
+
         if (std.mem.eql(u8, rel_path, exclude)) return true;
         if (rel_path.len > exclude.len and std.mem.startsWith(u8, rel_path, exclude) and rel_path[exclude.len] == '/') return true;
     }
     return false;
+}
+
+fn hasStar(value: []const u8) bool {
+    return std.mem.indexOfScalar(u8, value, '*') != null;
+}
+
+fn globExcludesPath(pattern: []const u8, rel_path: []const u8) bool {
+    var candidate = rel_path;
+    while (true) {
+        if (matchGlobPattern(pattern, candidate)) return true;
+        candidate = paths.parent(candidate) orelse return false;
+    }
+}
+
+fn matchGlobPattern(pattern: []const u8, rel_path: []const u8) bool {
+    if (!isValidGlobPattern(pattern)) return false;
+    return matchGlobSegments(pattern, rel_path);
+}
+
+fn isValidGlobPattern(pattern: []const u8) bool {
+    if (pattern.len == 0) return false;
+
+    var remaining = pattern;
+    while (true) {
+        const split = splitFirstSegment(remaining);
+        if (split.segment.len == 0) return false;
+        if (hasStar(split.segment) and !std.mem.eql(u8, split.segment, "*")) return false;
+
+        remaining = split.rest orelse return true;
+    }
+}
+
+const SegmentSplit = struct {
+    segment: []const u8,
+    rest: ?[]const u8,
+};
+
+fn splitFirstSegment(path: []const u8) SegmentSplit {
+    if (std.mem.indexOfScalar(u8, path, '/')) |slash| {
+        return .{ .segment = path[0..slash], .rest = path[slash + 1 ..] };
+    }
+    return .{ .segment = path, .rest = null };
+}
+
+fn matchGlobSegments(pattern: []const u8, path: []const u8) bool {
+    if (pattern.len == 0) return path.len == 0;
+
+    const pattern_split = splitFirstSegment(pattern);
+    const pattern_rest = pattern_split.rest orelse "";
+
+    if (std.mem.eql(u8, pattern_split.segment, "*")) {
+        if (pattern_split.rest == null) return true;
+        if (matchGlobSegments(pattern_rest, path)) return true;
+
+        var path_remaining = path;
+        while (path_remaining.len != 0) {
+            const path_split = splitFirstSegment(path_remaining);
+            if (path_split.segment.len == 0) return false;
+            path_remaining = path_split.rest orelse "";
+            if (matchGlobSegments(pattern_rest, path_remaining)) return true;
+        }
+
+        return false;
+    }
+
+    if (path.len == 0) return false;
+
+    const path_split = splitFirstSegment(path);
+    if (path_split.segment.len == 0) return false;
+    if (!std.mem.eql(u8, pattern_split.segment, path_split.segment)) return false;
+
+    return matchGlobSegments(pattern_rest, path_split.rest orelse "");
 }
 
 fn sortOperations(ops: []Operation) void {
@@ -149,6 +226,47 @@ fn setMtime(io: Io, absolute_path: []const u8, nanoseconds: i96) !void {
     const file = try Dir.cwd().openFile(io, absolute_path, .{ .mode = .read_only, .follow_symlinks = false });
     defer file.close(io);
     try file.setTimestamps(io, .{ .modify_timestamp = .{ .new = Io.Timestamp.fromNanoseconds(nanoseconds) } });
+}
+
+test "isExcluded keeps exact relative exclude behavior" {
+    try std.testing.expect(isExcluded(&.{".config/ghostty"}, ".config/ghostty"));
+    try std.testing.expect(isExcluded(&.{".config/ghostty"}, ".config/ghostty/config"));
+    try std.testing.expect(!isExcluded(&.{".config/ghostty"}, "foo/.config/ghostty"));
+}
+
+test "isExcluded supports star segment excludes at any depth" {
+    const excludes = &.{"*/.cpcache"};
+
+    try std.testing.expect(isExcluded(excludes, ".cpcache"));
+    try std.testing.expect(isExcluded(excludes, ".clojure/.cpcache"));
+    try std.testing.expect(isExcluded(excludes, ".clj/something/.cpcache"));
+    try std.testing.expect(isExcluded(excludes, "something/cool/.cpcache"));
+    try std.testing.expect(isExcluded(excludes, ".clj/something/.cpcache/cache.edn"));
+
+    try std.testing.expect(!isExcluded(excludes, ".cpcache-old"));
+    try std.testing.expect(!isExcluded(excludes, ".clj/.cpcache-old"));
+}
+
+test "isExcluded star segment matches zero or more path segments" {
+    try std.testing.expect(isExcluded(&.{".config/*"}, ".config"));
+    try std.testing.expect(isExcluded(&.{".config/*"}, ".config/nvim"));
+    try std.testing.expect(isExcluded(&.{".config/*"}, ".config/nvim/init.lua"));
+    try std.testing.expect(isExcluded(&.{"foo/*/bar"}, "foo/bar"));
+    try std.testing.expect(isExcluded(&.{"foo/*/bar"}, "foo/x/bar"));
+    try std.testing.expect(isExcluded(&.{"foo/*/bar"}, "foo/x/y/bar"));
+}
+
+test "isExcluded ignores unsupported embedded star patterns" {
+    try std.testing.expect(!isExcluded(&.{"foo*/bar"}, "foo123/bar"));
+    try std.testing.expect(!isExcluded(&.{"foo*/bar"}, "foo*/bar"));
+    try std.testing.expect(!isExcluded(&.{"*.edn"}, "deps.edn"));
+    try std.testing.expect(!isExcluded(&.{"*/.clj-*"}, ".clj-kondo"));
+}
+
+test "isExcluded ignores glob patterns with empty segments" {
+    try std.testing.expect(!isExcluded(&.{"*/foo/"}, "foo"));
+    try std.testing.expect(!isExcluded(&.{"foo//*/bar"}, "foo/x/bar"));
+    try std.testing.expect(!isExcluded(&.{"/*/bar"}, "foo/bar"));
 }
 
 test "build plan creates missing home files and updates older dotfiles" {
@@ -207,6 +325,42 @@ test "build plan respects exact relative excludes" {
     const operations = try build(arena.allocator(), io, p.home, .{
         .dotfiles_path = p.dotfiles_home,
         .excludes = &.{".config/ghostty"},
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), operations.len);
+    try std.testing.expectEqual(Operation.Kind.create_home_file, operations[0].kind);
+    try std.testing.expectEqualStrings(".zshrc", operations[0].rel_path);
+}
+
+test "build plan respects star segment glob excludes" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(io, "dot/home/.cpcache");
+    try tmp.dir.createDirPath(io, "dot/home/.clojure/.cpcache");
+    try tmp.dir.createDirPath(io, "dot/home/.clj/something/.cpcache");
+    try tmp.dir.createDirPath(io, "dot/home/something/cool/.cpcache");
+    try tmp.dir.createDirPath(io, "home/.clojure");
+    try tmp.dir.createDirPath(io, "home/.clj/something");
+    try tmp.dir.createDirPath(io, "home/something/cool");
+    try tmp.dir.writeFile(io, .{ .sub_path = "dot/home/.zshrc", .data = "repo\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "dot/home/.cpcache/cache.edn", .data = "ignored\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "dot/home/.clojure/.cpcache/cache.edn", .data = "ignored\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "dot/home/.clj/something/.cpcache/cache.edn", .data = "ignored\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "dot/home/something/cool/.cpcache/cache.edn", .data = "ignored\n" });
+
+    const p = try tmpPaths(allocator, &tmp);
+    defer allocator.free(p.root);
+    defer allocator.free(p.dotfiles_home);
+    defer allocator.free(p.home);
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const operations = try build(arena.allocator(), io, p.home, .{
+        .dotfiles_path = p.dotfiles_home,
+        .excludes = &.{"*/.cpcache"},
     });
 
     try std.testing.expectEqual(@as(usize, 1), operations.len);
