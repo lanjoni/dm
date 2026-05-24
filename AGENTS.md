@@ -50,8 +50,8 @@ Format is a simple key/value file:
 # Directory that mirrors $HOME
 dotfiles-path = ~/gh/dotfiles/home
 
-# Exact relative paths under dotfiles-path to ignore
-excludes = README.md, .config/ghostty
+# Relative paths and patterns under dotfiles-path to ignore
+excludes = README.md, .config/ghostty, */.cpcache
 ```
 
 Rules:
@@ -62,7 +62,8 @@ Rules:
 - Blank lines and `#` comments are allowed.
 - `~` expansion is supported.
 - Environment variable expansion is out of scope for now.
-- Excludes are exact relative paths; no globbing yet.
+- Excludes are exact relative paths or `*` segment patterns.
+- In excludes, `*` is only special as a full path segment and matches zero or more path segments.
 
 ## Source layout
 

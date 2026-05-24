@@ -85,8 +85,8 @@ Example:
 # Directory that mirrors $HOME
 dotfiles-path = ~/gh/dotfiles/home
 
-# Exact paths relative to dotfiles-path to ignore
-excludes = README.md, .config/ghostty
+# Relative paths and patterns under dotfiles-path to ignore
+excludes = README.md, .config/ghostty, */.cpcache
 ```
 
 ### Config keys
@@ -110,20 +110,28 @@ Rules:
 
 Optional.
 
-Comma-separated exact paths relative to `dotfiles-path`.
+Comma-separated paths or patterns relative to `dotfiles-path`.
 
 ```text
-excludes = README.md, .config/ghostty
+excludes = README.md, .config/ghostty, */.clj-kondo, */.lsp, */.cpcache
 ```
 
-This excludes both sides of the mapping:
+Entries without `*` are exact relative paths and exclude their subtree. Entries with `*` support `*` only as a full path segment; it matches zero or more path segments.
+
+For example, this excludes `.cpcache` at any depth:
+
+```text
+excludes = */.cpcache
+```
+
+An excluded path is removed from management on both sides of the mapping. For example, `.config/ghostty` excludes:
 
 ```text
 ~/gh/dotfiles/home/.config/ghostty
 ~/.config/ghostty
 ```
 
-Globs are not supported yet.
+Only full-segment `*` patterns are supported; other glob syntax is not supported yet.
 
 ## Commands
 
