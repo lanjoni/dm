@@ -2,6 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+const build_options = @import("build_options");
 const cli = @import("cli.zig");
 const Color = @import("colors.zig");
 const config = @import("config.zig");
@@ -20,6 +21,7 @@ pub const RunOptions = struct {
 };
 
 pub const parseConfig = config.parse;
+pub const version = build_options.version;
 
 pub fn run(allocator: Allocator, options: RunOptions) !u8 {
     const parsed_cli = cli.parse(options.args) catch |err| {
@@ -31,6 +33,10 @@ pub fn run(allocator: Allocator, options: RunOptions) !u8 {
     switch (parsed_cli.command) {
         .help => {
             try cli.printHelp(options.out);
+            return 0;
+        },
+        .version => {
+            try options.out.print("dm {s}\n", .{version});
             return 0;
         },
         .status => {
@@ -73,6 +79,21 @@ pub fn add(a: i32, b: i32) i32 {
 
 test "basic add functionality" {
     try std.testing.expect(add(3, 7) == 10);
+}
+
+test "run version prints current version" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    const code = try run(std.testing.allocator, .{
+        .args = &.{ "dm", "version" },
+        .home = "/tmp",
+        .io = undefined,
+        .out = &out.writer,
+    });
+
+    try std.testing.expectEqual(@as(u8, 0), code);
+    try std.testing.expectEqualStrings("dm " ++ version ++ "\n", out.written());
 }
 
 test {

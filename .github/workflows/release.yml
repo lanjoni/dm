@@ -37,10 +37,26 @@ jobs:
         run: zig build test
 
       - name: Build release binary
-        run: zig build --release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            manifest_version="$(grep -E '^    \.version = "[^"]+",$' build.zig.zon | sed -E 's/.*"([^"]+)".*/\1/')"
+            test "${manifest_version}" = "${version}"
+            zig build --release -Dversion="${version}"
+          else
+            zig build --release
+          fi
 
       - name: Smoke-test CLI
-        run: ./zig-out/bin/dm help
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./zig-out/bin/dm help
+          ./zig-out/bin/dm version
 
       - name: Package artifact
         shell: bash

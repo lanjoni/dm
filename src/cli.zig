@@ -7,7 +7,7 @@ pub const Cli = struct {
     config_path: ?[]const u8 = null,
     dry_run: bool = false,
 
-    pub const Command = enum { help, sync, status };
+    pub const Command = enum { help, sync, status, version };
 };
 
 pub fn parse(args: []const []const u8) !Cli {
@@ -20,6 +20,8 @@ pub fn parse(args: []const []const u8) !Cli {
         .{ .command = .sync }
     else if (std.mem.eql(u8, command_arg, "status"))
         .{ .command = .status }
+    else if (std.mem.eql(u8, command_arg, "version") or std.mem.eql(u8, command_arg, "--version") or std.mem.eql(u8, command_arg, "-v"))
+        .{ .command = .version }
     else
         return error.UnknownCommand;
 
@@ -51,11 +53,14 @@ pub fn printHelp(out: *Io.Writer) !void {
         \\  dm help
         \\  dm status [--config <path>]
         \\  dm sync [--config <path>] [--dry-run]
+        \\  dm version
+        \\  dm --version
         \\
         \\Commands:
         \\  help      Show this help
         \\  status    Show current sync status
         \\  sync      Sync managed dotfiles
+        \\  version   Show installed dm version
         \\
         \\Config:
         \\  default: ~/.config/dm/config
@@ -70,6 +75,16 @@ test "parse no args shows help" {
     try std.testing.expect(parsed.config_path == null);
 }
 
+test "parse version command" {
+    const parsed = try parse(&.{ "dm", "version" });
+    try std.testing.expectEqual(Cli.Command.version, parsed.command);
+}
+
+test "parse version flag" {
+    const parsed = try parse(&.{ "dm", "--version" });
+    try std.testing.expectEqual(Cli.Command.version, parsed.command);
+}
+
 test "parse sync flags" {
     const parsed = try parse(&.{ "dm", "sync", "--config", "./config", "--dry-run" });
     try std.testing.expectEqual(Cli.Command.sync, parsed.command);
@@ -81,6 +96,20 @@ test "reject dry run on status" {
     try std.testing.expectError(error.FlagNotAllowed, parse(&.{ "dm", "status", "--dry-run" }));
 }
 
+test "reject config on version" {
+    try std.testing.expectError(error.FlagNotAllowed, parse(&.{ "dm", "version", "--config", "./config" }));
+}
+
 test "reject missing config path" {
     try std.testing.expectError(error.MissingConfigPath, parse(&.{ "dm", "sync", "--config" }));
+}
+
+test "help mentions version command" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+
+    try printHelp(&out.writer);
+
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "dm version") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "version   Show installed dm version") != null);
 }

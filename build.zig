@@ -1,4 +1,5 @@
 const std = @import("std");
+const manifest = @import("build.zig.zon");
 
 // Although this function looks imperative, it does not perform the build
 // directly and instead it mutates the build graph (`b`) that will be then
@@ -20,10 +21,16 @@ pub fn build(b: *std.Build) void {
         .preferred_optimize_mode = .ReleaseSmall,
     });
     const strip = optimize == .ReleaseSmall;
+    const manifest_version: []const u8 = manifest.version;
+    const version = normalizeVersion(b.option([]const u8, "version", "Version string embedded in dm") orelse manifest_version);
+    const semantic_version = std.SemanticVersion.parse(version) catch null;
     // It's also possible to define more custom flags to toggle optional features
     // of this build script using `b.option()`. All defined flags (including
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
+
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", version);
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -46,6 +53,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = strip,
     });
+    mod.addOptions("build_options", build_options);
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -88,6 +96,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "dm", .module = mod },
             },
         }),
+        .version = semantic_version,
     });
 
     // This declares intent for the executable to be installed into the
@@ -160,4 +169,9 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
+}
+
+fn normalizeVersion(version: []const u8) []const u8 {
+    if (version.len > 1 and version[0] == 'v') return version[1..];
+    return version;
 }
